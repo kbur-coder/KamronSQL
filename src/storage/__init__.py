@@ -12,3 +12,4 @@ from .disk_manager import DiskManager
 from .slotted_page import SlottedPage
 from .replacer import ClockReplacer, LRUKReplacer, make_replacer
 from .buffer_pool import BufferPool, PageGuard
+from .bplus_tree import BPlusTree
