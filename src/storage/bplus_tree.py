@@ -393,3 +393,77 @@ class BPlusTree:
             self.pool.delete_page(right.page_id)
         path.pop()
         self._rebalance_internal(parent, path)
+    def _leftmost_leaf(self):
+        node = self._load(self._root)
+        while isinstance(node, InternalNode):
+            node = self._load(node.children[0])
+        return node
+
+    def _rightmost_leaf(self):
+        node = self._load(self._root)
+        while isinstance(node, InternalNode):
+            node = self._load(node.children[-1])
+        return node
+
+    def range(self, low=None, high=None, low_inclusive=True, high_inclusive=True, reverse=False):
+        if reverse:
+            return self._range_backward(low, high, low_inclusive, high_inclusive)
+        return self._range_forward(low, high, low_inclusive, high_inclusive)
+
+    def _range_forward(self, low, high, low_inclusive, high_inclusive):
+        if low is None:
+            leaf = self._leftmost_leaf()
+            index = 0
+        else:
+            _, leaf = self._descend(low)
+            index = bisect_left(leaf.keys, low) if low_inclusive else bisect_right(leaf.keys, low)
+        while True:
+            while index < len(leaf.keys):
+                key = leaf.keys[index]
+                if high is not None and (key > high or (key == high and not high_inclusive)):
+                    return
+                yield key, leaf.rids[index]
+                index += 1
+            if leaf.next == INVALID_PAGE:
+                return
+            leaf = self._load(leaf.next)
+            index = 0
+
+    def _range_backward(self, low, high, low_inclusive, high_inclusive):
+        if high is None:
+            leaf = self._rightmost_leaf()
+            index = len(leaf.keys) - 1
+        else:
+            _, leaf = self._descend(high)
+            index = (bisect_right(leaf.keys, high) if high_inclusive else bisect_left(leaf.keys, high)) - 1
+        while True:
+            while index >= 0:
+                key = leaf.keys[index]
+                if low is not None and (key < low or (key == low and not low_inclusive)):
+                    return
+                yield key, leaf.rids[index]
+                index -= 1
+            if leaf.prev == INVALID_PAGE:
+                return
+            leaf = self._load(leaf.prev)
+            index = len(leaf.keys) - 1
+
+    def items(self):
+        return self.range()
+
+    def first_key(self):
+        leaf = self._leftmost_leaf()
+        return leaf.keys[0] if leaf.keys else None
+
+    def last_key(self):
+        leaf = self._rightmost_leaf()
+        return leaf.keys[-1] if leaf.keys else None
+
+    def destroy(self):
+        stack = [self._root]
+        while stack:
+            node = self._load(stack.pop())
+            if isinstance(node, InternalNode):
+                stack.extend(node.children)
+            self.pool.delete_page(node.page_id)
+        self.pool.delete_page(self.meta_page_id)
