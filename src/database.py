@@ -83,6 +83,9 @@ def delete_from_table(table_name: str,
 
     headers = table[0]
 
+    if where is not None and not isinstance(where, dict):
+        where = {headers[0]: where}
+
     where_indexes = {}
 
     if where is not None:
@@ -102,4 +105,28 @@ def delete_from_table(table_name: str,
     save_table(table_name, new_table)
 
 
+def update_table(table_name, record_id, column_name, new_value):
+    table = load_table(table_name)
 
+    if table is None:
+        return
+
+    headers = table[0]
+
+    if column_name not in headers:
+        print('Нет такого столбца')
+        return
+
+    column_index = headers.index(column_name)
+    updated = False
+
+    for row in table[1:]:
+        if row[0] == str(record_id):
+            row[column_index] = str(new_value)
+            updated = True
+
+    if not updated:
+        print('Запись не найдена')
+        return
+
+    save_table(table_name, table)
