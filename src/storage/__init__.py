@@ -8,3 +8,4 @@ from .errors import (
     TupleTooLargeError,
 )
 from .layout import DEFAULT_PAGE_SIZE, INVALID_PAGE, RID
+from .disk_manager import DiskManager
