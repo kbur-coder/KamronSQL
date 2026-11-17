@@ -208,5 +208,41 @@ class BufferPool:
                 "policy": self.policy,
             }
 
+    def flush_unpinned(self):
+        with self._lock:
+            count = 0
+            for frame in self._frames:
+                if frame.page_id != INVALID_PAGE and frame.dirty and frame.pin_count == 0:
+                    self.disk.write_page(frame.page_id, frame.data)
+                    frame.dirty = False
+                    self.writebacks += 1
+                    count += 1
+            return count
+
+    def start_flusher(self, interval=0.5):
+        with self._lock:
+            if self._flusher is not None:
+                return
+            stop = threading.Event()
+            thread = threading.Thread(target=self._flush_loop, args=(stop, interval), name="kamronsql-flusher", daemon=True)
+            self._flusher_stop = stop
+            self._flusher = thread
+            thread.start()
+
+    def _flush_loop(self, stop, interval):
+        while not stop.wait(interval):
+            self.flush_unpinned()
+
+    def stop_flusher(self):
+        with self._lock:
+            thread = self._flusher
+            stop = self._flusher_stop
+            self._flusher = None
+            self._flusher_stop = None
+        if thread is not None:
+            stop.set()
+            thread.join()
+
     def close(self):
+        self.stop_flusher()
         self.flush_all()
