@@ -280,3 +280,116 @@ class BPlusTree:
         bounds = [low] + keys + [high]
         for index, child in enumerate(node.children):
             self._check_node(child, bounds[index], bounds[index + 1], depth + 1, False, leaves, depths)
+    def delete(self, key):
+        path, leaf = self._descend(key)
+        index = bisect_left(leaf.keys, key)
+        if index >= len(leaf.keys) or leaf.keys[index] != key:
+            return False
+        del leaf.keys[index]
+        del leaf.rids[index]
+        self._count -= 1
+        if not path or len(leaf.keys) >= self.min_leaf:
+            self._store(leaf)
+            self._write_meta()
+            return True
+        self._rebalance_leaf(leaf, path)
+        self._write_meta()
+        return True
+
+    def _rebalance_leaf(self, leaf, path):
+        parent, index = path[-1]
+        left = self._load(parent.children[index - 1]) if index > 0 else None
+        right = self._load(parent.children[index + 1]) if index < len(parent.keys) else None
+        if left is not None and len(left.keys) > self.min_leaf:
+            leaf.keys.insert(0, left.keys.pop())
+            leaf.rids.insert(0, left.rids.pop())
+            parent.keys[index - 1] = leaf.keys[0]
+            self._store(left)
+            self._store(leaf)
+            self._store(parent)
+            return
+        if right is not None and len(right.keys) > self.min_leaf:
+            leaf.keys.append(right.keys.pop(0))
+            leaf.rids.append(right.rids.pop(0))
+            parent.keys[index] = right.keys[0]
+            self._store(right)
+            self._store(leaf)
+            self._store(parent)
+            return
+        if left is not None:
+            left.keys.extend(leaf.keys)
+            left.rids.extend(leaf.rids)
+            left.next = leaf.next
+            if leaf.next != INVALID_PAGE:
+                after = self._load(leaf.next)
+                after.prev = left.page_id
+                self._store(after)
+            self._store(left)
+            del parent.keys[index - 1]
+            del parent.children[index]
+            self.pool.delete_page(leaf.page_id)
+        else:
+            leaf.keys.extend(right.keys)
+            leaf.rids.extend(right.rids)
+            leaf.next = right.next
+            if right.next != INVALID_PAGE:
+                after = self._load(right.next)
+                after.prev = leaf.page_id
+                self._store(after)
+            self._store(leaf)
+            del parent.keys[index]
+            del parent.children[index + 1]
+            self.pool.delete_page(right.page_id)
+        path.pop()
+        self._rebalance_internal(parent, path)
+
+    def _rebalance_internal(self, node, path):
+        if not path:
+            if not node.keys:
+                old_root = node.page_id
+                self._root = node.children[0]
+                self._height -= 1
+                self.pool.delete_page(old_root)
+            else:
+                self._store(node)
+            return
+        if len(node.keys) >= self.min_internal:
+            self._store(node)
+            return
+        parent, index = path[-1]
+        left = self._load(parent.children[index - 1]) if index > 0 else None
+        right = self._load(parent.children[index + 1]) if index < len(parent.keys) else None
+        if left is not None and len(left.keys) > self.min_internal:
+            node.keys.insert(0, parent.keys[index - 1])
+            node.children.insert(0, left.children.pop())
+            parent.keys[index - 1] = left.keys.pop()
+            self._store(left)
+            self._store(node)
+            self._store(parent)
+            return
+        if right is not None and len(right.keys) > self.min_internal:
+            node.keys.append(parent.keys[index])
+            node.children.append(right.children.pop(0))
+            parent.keys[index] = right.keys.pop(0)
+            self._store(right)
+            self._store(node)
+            self._store(parent)
+            return
+        if left is not None:
+            left.keys.append(parent.keys[index - 1])
+            left.keys.extend(node.keys)
+            left.children.extend(node.children)
+            self._store(left)
+            del parent.keys[index - 1]
+            del parent.children[index]
+            self.pool.delete_page(node.page_id)
+        else:
+            node.keys.append(parent.keys[index])
+            node.keys.extend(right.keys)
+            node.children.extend(right.children)
+            self._store(node)
+            del parent.keys[index]
+            del parent.children[index + 1]
+            self.pool.delete_page(right.page_id)
+        path.pop()
+        self._rebalance_internal(parent, path)
